@@ -34,6 +34,9 @@ class Window {
 
 	public var width(get, never) : Int;
 	public var height(get, never) : Int;
+	public var pixelWidth(get, never) : Int;
+	public var pixelHeight(get, never) : Int;
+
 	public var mouseX(get, never) : Int;
 	public var mouseY(get, never) : Int;
 	@:deprecated("Use mouseMode = AbsoluteUnbound(true)")
@@ -313,6 +316,14 @@ class Window {
 
 	function get_height() {
 		return Math.round(canvasPos.height * getPixelRatio());
+	}
+
+	function get_pixelHeight() {
+		return height;
+	}
+
+	function get_pixelWidth() {
+		return width;
 	}
 
 	function get_mouseX() {

@@ -46,6 +46,9 @@ class Window {
 
 	public var width(get, never) : Int;
 	public var height(get, never) : Int;
+	public var pixelWidth(get, never) : Int;
+	public var pixelHeight(get, never) : Int;
+
 	public var mouseX(get, never) : Int;
 	public var mouseY(get, never) : Int;
 	@:deprecated("Use mouseMode = AbsoluteUnbound(true)")
@@ -95,7 +98,7 @@ class Window {
 	#end
 	#end
 
-	function new(title:String, width:Int, height:Int, fixed:Bool = false) {
+	function new(title:String, width:Int, height:Int, fixed:Bool = false, highDPI = false) {
 		this.windowWidth = width;
 		this.windowHeight = height;
 		eventTargets = new List();
@@ -103,6 +106,9 @@ class Window {
 		dropTargets = new List();
 		#if hlsdl
 		var sdlFlags = if (!fixed) sdl.Window.SDL_WINDOW_SHOWN | sdl.Window.SDL_WINDOW_RESIZABLE else sdl.Window.SDL_WINDOW_SHOWN;
+		if (highDPI) {
+			sdlFlags |= sdl.Window.SDL_WINDOW_ALLOW_HIGHDPI;
+		}
 		#if heaps_vulkan
 		if( USE_VULKAN ) sdlFlags |= sdl.Window.SDL_WINDOW_VULKAN;
 		#end
@@ -237,6 +243,14 @@ class Window {
 
 	function get_height() : Int {
 		return windowHeight;
+	}
+	
+	function get_pixelWidth() : Int {
+		return window.pixelWidth;
+	}
+
+	function get_pixelHeight() : Int {
+		return window.pixelHeight;
 	}
 
 	function get_mouseLock() : Bool {
