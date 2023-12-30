@@ -48,6 +48,8 @@ class Window {
 	public var height(get, never) : Int;
 	public var windowToPixelRatio(get, never) : Float;
 
+	public var windowToPixelRatio(get, never) : Float;
+
 	public var mouseX(get, never) : Int;
 	public var mouseY(get, never) : Int;
 	@:deprecated("Use mouseMode = AbsoluteUnbound(true)")
@@ -97,6 +99,7 @@ class Window {
 	#end
 	#end
 
+	function new(title:String, width:Int, height:Int, fixed:Bool = false, highDPI = false) {
 	function new(title:String, width:Int, height:Int, fixed:Bool = false, highDPI = false) {
 		this.windowWidth = width;
 		this.windowHeight = height;
