@@ -1017,8 +1017,8 @@ class GlDriver extends Driver {
 			tt.internalFmt = GL.DEPTH_COMPONENT16;
 		case Depth24 #if js if( glES >= 3 ) #end: tt.internalFmt = GL.DEPTH_COMPONENT;
 		case Depth24Stencil8:
-			tt.internalFmt = GL.DEPTH24_STENCIL8;
-			tt.pixelFmt = GL.UNSIGNED_INT_24_8;
+			tt.internalFmt = GL.DEPTH_STENCIL;
+			tt.pixelFmt = GL.UNSIGNED_INT;
 			fmt = GL.DEPTH_STENCIL;
 		default:
 			throw "Unsupported depth format "+	t.format;
