@@ -8,6 +8,7 @@ class Joint extends Object {
 		super(null);
 		name = j.name;
 		this.skin = skin;
+		lastFrame = -1; // force first sync
 		// fake parent
 		this.parent = skin;
 		this.index = j.index;
@@ -251,6 +252,7 @@ class Skin extends MultiMaterial {
 	}
 
 	override function emit( ctx : RenderContext ) {
+		calcScreenRatio(ctx);
 		syncJoints(); // In case sync was not called because of culling (eg fixedPosition)
 		if( splitPalette == null )
 			super.emit(ctx);
@@ -293,7 +295,7 @@ class Skin extends MultiMaterial {
 		} else {
 			var i = ctx.drawPass.index;
 			skinShader.bonesMatrixes = splitPalette[i];
-			primitive.selectMaterial(i);
+			primitive.selectMaterial(i, primitive.screenRatioToLod(curScreenRatio));
 			ctx.uploadParams();
 			primitive.render(ctx.engine);
 		}

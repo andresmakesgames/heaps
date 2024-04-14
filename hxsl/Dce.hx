@@ -11,10 +11,12 @@ private class VarDeps {
 	public var keep : Bool;
 	public var used : Bool;
 	public var deps : Map<Int,VarDeps>;
+	public var adeps : Array<VarDeps>;
 	public function new(v) {
 		this.v = v;
 		used = false;
 		deps = new Map();
+		adeps = [];
 	}
 }
 
@@ -45,7 +47,7 @@ class Dce {
 				var i = get(v);
 				if( v.kind == Input )
 					inputs.push(i);
-				if( v.kind == Output || v.type.match(TBuffer(_,_,RW)) )
+				if( v.kind == Output || v.type.match(TBuffer(_,_,RW) | TRWTexture(_)) )
 					i.keep = true;
 			}
 		}
@@ -111,7 +113,7 @@ class Dce {
 		if( v.used ) return;
 		debug(v.v.name+" is used");
 		v.used = true;
-		for( d in v.deps )
+		for( d in v.adeps )
 			markRec(d);
 	}
 
@@ -127,8 +129,11 @@ class Dce {
 				}
 				continue;
 			}
-			debug(w.v.name+" depends on "+vd.v.name);
-			w.deps.set(v.id, vd);
+			if( !w.deps.exists(v.id) ) {
+				debug(w.v.name+" depends on "+vd.v.name);
+				w.deps.set(v.id, vd);
+				w.adeps.push(vd);
+			}
 		}
 	}
 
@@ -143,13 +148,13 @@ class Dce {
 			writeTo.pop();
 			if( isAffected.indexOf(v) < 0 )
 				isAffected.push(v);
-		case TBinop(OpAssign | OpAssignOp(_), { e : TArray({ e: TVar(v) }, i) }, e):
+		case TBinop(OpAssign | OpAssignOp(_), { e : (TArray({ e: TVar(v) }, i) | TSwiz({ e : TArray({ e : TVar(v) }, i) },_) | TField({e : TArray({ e : TVar(v) }, i) }, _)) }, e):
 			var v = get(v);
 			writeTo.push(v);
 			check(i, writeTo, isAffected);
 			check(e, writeTo, isAffected);
 			writeTo.pop();
-			if ( isAffected.indexOf(v) < 0 )
+			if( isAffected.indexOf(v) < 0 )
 				isAffected.push(v);
 		case TBlock(el):
 			var noWrite = [];
@@ -197,6 +202,14 @@ class Dce {
 			} else {
 				link(channelVars[cid], writeTo);
 			}
+		case TCall({ e : TGlobal(ImageStore)}, [{ e : TVar(v) }, uv, val]):
+			var v = get(v);
+			writeTo.push(v);
+			check(uv, writeTo, isAffected);
+			check(val, writeTo, isAffected);
+			writeTo.pop();
+			if( isAffected.indexOf(v) < 0 )
+				isAffected.push(v);
 		default:
 			e.iter(check.bind(_, writeTo, isAffected));
 		}

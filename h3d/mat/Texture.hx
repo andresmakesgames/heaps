@@ -42,6 +42,8 @@ class Texture {
 	public var startingMip : Int = 0;
 	public var lodBias : Float = 0.;
 	public var mipLevels(get, never) : Int;
+	public var depthBias : Float = 0.;
+	public var slopeScaledBias : Float = 0.;
 	var customMipLevels : Int;
 
 	/**
@@ -370,7 +372,7 @@ class Texture {
 	/**
 		Creates a 1x1 texture using the RGB color passed as parameter.
 	**/
-	public static function fromColor( color : Int, ?alpha = 1. ) {
+	public static function fromColor( color : Int, alpha = 1. ) {
 		var engine = h3d.Engine.getCurrent();
 		var aval = Std.int(alpha * 255);
 		if( aval < 0 ) aval = 0 else if( aval > 255 ) aval = 255;
@@ -510,7 +512,7 @@ class Texture {
 
 	public function isDepth() {
 		return switch( format ) {
-		case Depth16, Depth24, Depth24Stencil8: true;
+		case Depth16, Depth24, Depth24Stencil8, Depth32: true;
 		default: false;
 		}
 	}

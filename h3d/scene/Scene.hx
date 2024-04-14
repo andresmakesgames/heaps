@@ -45,7 +45,7 @@ class Scene extends Object implements h3d.IDrawable implements hxd.SceneEvents.I
 		var engine = h3d.Engine.getCurrent();
 		if( engine != null )
 			camera.screenRatio = engine.width / engine.height;
-		ctx = new RenderContext();
+		ctx = new RenderContext(this);
 		if( createRenderer ) renderer = h3d.mat.MaterialSetup.current.createRenderer();
 		if( createLightSystem ) lightSystem = h3d.mat.MaterialSetup.current.createLightSystem();
 	}
@@ -285,14 +285,9 @@ class Scene extends Object implements h3d.IDrawable implements hxd.SceneEvents.I
 		else
 			camera.screenRatio = t.width / t.height;
 		camera.update();
-		ctx.camera = camera;
-		ctx.engine = engine;
-		ctx.scene = this;
 		ctx.start();
 		syncRec(ctx);
-		ctx.camera = null;
-		ctx.engine = null;
-		ctx.scene = null;
+		ctx.done();
 	}
 
 	/**
@@ -334,18 +329,17 @@ class Scene extends Object implements h3d.IDrawable implements hxd.SceneEvents.I
 		if( camera.rightHanded )
 			engine.driver.setRenderFlag(CameraHandness,1);
 
-		ctx.camera = camera;
-		ctx.engine = engine;
-		ctx.scene = this;
 		ctx.start();
 		renderer.start();
 
 		#if sceneprof h3d.impl.SceneProf.begin("sync", ctx.frame); #end
+		@:privateAccess renderer.mark("sync");
 		syncRec(ctx);
 		#if sceneprof
 		h3d.impl.SceneProf.end();
 		h3d.impl.SceneProf.begin("emit", ctx.frame);
 		#end
+		@:privateAccess renderer.mark("emit");
 		emitRec(ctx);
 		#if sceneprof h3d.impl.SceneProf.end(); #end
 
@@ -385,9 +379,6 @@ class Scene extends Object implements h3d.IDrawable implements hxd.SceneEvents.I
 
 		ctx.done();
 		ctx.wasContextLost = false;
-		ctx.scene = null;
-		ctx.camera = null;
-		ctx.engine = null;
 		for( i in 0...passIndex ) {
 			var p = ctx.cachedPassObjects[i];
 			p.name = null;

@@ -76,6 +76,7 @@ class Renderer extends h3d.scene.Renderer {
 	var currentStep : h3d.impl.RendererFX.Step;
 	var performance = new h3d.pass.ScreenFx(new h3d.shader.pbr.PerformanceViewer());
 	var indirectEnv = true;
+	var cullingDistanceFactor : Float = 0.0;
 
 	var textures = {
 		albedo : (null:h3d.mat.Texture),
@@ -95,6 +96,11 @@ class Renderer extends h3d.scene.Renderer {
 	public var env : Environment;
 	public var exposure(get,set) : Float;
 	var debugShadowMapIndex = 1;
+
+	#if editor
+	var outline = new h3d.pass.ScreenFx(new hide.Renderer.ScreenOutline());
+	var outlineBlur = new h3d.pass.Blur(4);
+	#end
 
 	static var ALPHA : hxsl.Output = Swiz(Value("output.color"),[W]);
 	var output = new h3d.pass.Output("default",[
@@ -171,6 +177,10 @@ class Renderer extends h3d.scene.Renderer {
 			return output;
 		case "decal" #if MRT_low , "emissiveDecal" #end:
 			return decalsOutput;
+		#if editor
+		case "highlight", "highlightBack":
+			return defaultPass;
+		#end
 		}
 		return super.getPassByName(name);
 	}
@@ -209,15 +219,41 @@ class Renderer extends h3d.scene.Renderer {
 		});
 	}
 
+	inline function cullPassesWithDistance( passes : h3d.pass.PassList, f : h3d.col.Collider -> Bool ) {
+		var prevCollider = null;
+		var prevResult = true;
+		passes.filter(function(p) {
+			var col = p.obj.cullingCollider;
+			if( col == null )
+				return true;
+			if( col != prevCollider ) {
+				prevCollider = col;
+				prevResult = f(col);
+				if ( prevResult ) {
+					var dim = col.dimension() * cullingDistanceFactor;
+					dim = dim * dim;
+					prevResult = dim > ctx.camera.pos.distanceSq(p.obj.getAbsPos().getPosition());
+				}
+			}
+			return prevResult;
+		});
+	}
+
 	override function draw( name : String ) {
 		var passes = get(name);
-		cullPasses(passes, function(col) return col.inFrustum(ctx.camera.frustum));
+		if ( cullingDistanceFactor > 0.0 )
+			cullPassesWithDistance(passes, function(col) return col.inFrustum(ctx.camera.frustum));
+		else
+			cullPasses(passes, function(col) return col.inFrustum(ctx.camera.frustum));
 		defaultPass.draw(passes);
 		passes.reset();
 	}
 
 	function renderPass(p:h3d.pass.Output, passes, ?sort) {
-		cullPasses(passes, function(col) return col.inFrustum(ctx.camera.frustum));
+		if ( cullingDistanceFactor > 0.0 )
+			cullPassesWithDistance(passes, function(col) return col.inFrustum(ctx.camera.frustum));
+		else
+			cullPasses(passes, function(col) return col.inFrustum(ctx.camera.frustum));
 		p.draw(passes, sort);
 		passes.reset();
 	}
@@ -276,17 +312,25 @@ class Renderer extends h3d.scene.Renderer {
 			performance.shader.hdrMap = perf;
 		}
 
+		beforeIndirect();
 		mark("Indirect Lighting");
-		if( !renderLightProbes() && indirectEnv  && env != null && env.power > 0.0 ) {
+		doIndirectLighting();
+		afterIndirect();
+
+		end();
+	}
+
+	function doIndirectLighting() {
+		if( !renderLightProbes() && indirectEnv && env != null && env.power > 0.0 ) {
 			pbrProps.isScreen = true;
 			pbrIndirect.drawIndirectDiffuse = true;
 			pbrIndirect.drawIndirectSpecular = true;
 			pbrOut.render();
 		}
-
-		end();
 	}
 
+	function beforeIndirect() {}
+	function afterIndirect() {}
 	function beforeFullScreenLights() {}
 	function afterFullScreenLights() {}
 
@@ -335,7 +379,12 @@ class Renderer extends h3d.scene.Renderer {
 	}
 
 	function begin( step : h3d.impl.RendererFX.Step ) {
-		mark(step.getName());
+		switch (step) {
+		case Custom(n):
+			mark(n);
+		default:
+			mark(step.getName());
+		}
 
 		for( f in effects )
 			if( f.enabled )
@@ -360,6 +409,35 @@ class Renderer extends h3d.scene.Renderer {
 	}
 
 	function end() {
+		#if editor
+			switch( currentStep ) {
+				case MainDraw:
+				case AfterTonemapping:
+					if (showEditorGuides) {
+						renderPass(defaultPass, get("debuggeom"), backToFront);
+						renderPass(defaultPass, get("debuggeom_alpha"), backToFront);
+					}
+
+					if (showEditorOutlines) {
+						var outlineTex = allocTarget("outline", true);
+						ctx.engine.pushTarget(outlineTex);
+						clear(0);
+						draw("highlightBack");
+						draw("highlight");
+						ctx.engine.popTarget();
+						var outlineBlurTex = allocTarget("outlineBlur", false);
+						outline.pass.setBlendMode(Alpha);
+						outlineBlur.apply(ctx, outlineTex, outlineBlurTex);
+						outline.shader.texture = outlineBlurTex;
+						outline.render();
+					}
+				case Overlay:
+					renderPass(defaultPass, get("overlay"), backToFront);
+					renderPass(defaultPass, get("ui"), backToFront);
+				default:
+			}
+		#end
+
 		for( f in effects )
 			if( f.enabled )
 				f.end(this, currentStep);
@@ -659,10 +737,7 @@ class Renderer extends h3d.scene.Renderer {
 				debugging = true;
 				hxd.Window.getInstance().addEventTarget(onEvent);
 			}
-			#if editor
-			renderPass(defaultPass, get("overlay"), backToFront);
-			renderPass(defaultPass, get("ui"), backToFront);
-			#end
+
 		case Performance:
 			if( enableFXAA ) {
 					mark("FXAA");
@@ -672,10 +747,6 @@ class Renderer extends h3d.scene.Renderer {
 				copy(ldr, null);
 			}
 			performance.render();
-			#if editor
-			renderPass(defaultPass, get("overlay"), backToFront);
-			renderPass(defaultPass, get("ui"), backToFront);
-			#end
 		}
 		if( debugging && displayMode != Debug ) {
 			debugging = false;
