@@ -37,6 +37,7 @@ class Engine {
 
 	public var drawTriangles(default, null) : Int;
 	public var drawCalls(default, null) : Int;
+	public var dispatches(default, null) : Int;
 	public var shaderSwitches(default, null) : Int;
 
 	public var backgroundColor : Null<Int> = 0xFF000000;
@@ -294,6 +295,7 @@ class Engine {
 		drawTriangles = 0;
 		shaderSwitches = 0;
 		drawCalls = 0;
+		dispatches = 0;
 		targetStack = null;
 		needFlushTarget = currentTargetTex != null;
 		#if (usesys && !macro)
