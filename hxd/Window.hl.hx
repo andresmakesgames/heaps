@@ -103,7 +103,6 @@ class Window {
 	#end
 
 	function new(title:String, width:Int, height:Int, fixed:Bool = false, highDPI = false) {
-	function new(title:String, width:Int, height:Int, fixed:Bool = false, highDPI = false) {
 		this.windowWidth = width;
 		this.windowHeight = height;
 		eventTargets = new List();
