@@ -51,8 +51,6 @@ class Window {
 	public var height(get, never) : Int;
 	public var windowToPixelRatio(get, never) : Float;
 
-	public var windowToPixelRatio(get, never) : Float;
-
 	public var mouseX(get, never) : Int;
 	public var mouseY(get, never) : Int;
 	@:deprecated("Use mouseMode = AbsoluteUnbound(true)")
