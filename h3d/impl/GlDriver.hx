@@ -945,8 +945,8 @@ class GlDriver extends Driver {
 		#if js
 		// prevent infinite grow if pixelRatio != 1
 		if( canvas.style.width == "" ) {
-			canvas.style.width = Std.int(width / js.Browser.window.devicePixelRatio)+"px";
-			canvas.style.height = Std.int(height / js.Browser.window.devicePixelRatio)+"px";
+			//canvas.style.width = Std.int(width / js.Browser.window.devicePixelRatio)+"px";
+			//canvas.style.height = Std.int(height / js.Browser.window.devicePixelRatio)+"px";
 		}
 		canvas.width = width;
 		canvas.height = height;
@@ -1169,7 +1169,7 @@ class GlDriver extends Driver {
 			tt.pixelFmt = GL.UNSIGNED_INT;
 			fmt = GL.DEPTH_STENCIL;
 		case Depth32:
-			tt.internalFmt = GL.DEPTH_COMPONENT32F;
+			tt.internalFmt = GL.DEPTH_COMPONENT;
 		default:
 			throw "Unsupported depth format "+	t.format;
 		}
