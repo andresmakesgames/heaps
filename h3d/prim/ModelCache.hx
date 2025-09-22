@@ -38,7 +38,13 @@ class ModelCache {
 				var parts = path.split(".");
 				parts.pop();
 				parts.push("props");
-				haxe.Json.parse(hxd.res.Loader.currentInstance.load(parts.join(".")).toText());
+				var propsRes = hxd.res.Loader.currentInstance.load(parts.join("."));
+				propsRes.watch(() -> {
+					// Clear this anim cache so the anim and it's props are reloaded the next time they are requested
+					models.remove(path);
+					anims.remove(path);
+				});
+				haxe.Json.parse(propsRes.toText());
 			} catch( e : hxd.res.NotFound )
 				null;
 			m = { lib : res.toHmd(), props : props, col : null, lastTime : 0. };
@@ -169,6 +175,15 @@ class ModelCache {
 		}
 	}
 
+	public function refreshLodConfig() {
+		for ( model in models )
+			for ( p in @:privateAccess model.lib.cachedPrimitives ) {
+				if ( p == null )
+					continue;
+				@:privateAccess p.lodConfig = null;
+			}
+	}
+
 	#if hide
 
 	public function loadPrefab( res : hxd.res.Prefab, ?p : hrt.prefab.Prefab, ?parent : h3d.scene.Object ) {
@@ -199,5 +214,4 @@ class ModelCache {
 	}
 
 	#end
-
 }

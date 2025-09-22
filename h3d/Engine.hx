@@ -25,6 +25,10 @@ enum DepthBinding {
 }
 
 class Engine {
+	#if multidriver
+	static var ID = 0;
+	public var id(default, null) : Int;
+	#end
 
 	public var driver(default,null) : h3d.impl.Driver;
 
@@ -35,7 +39,7 @@ class Engine {
 	public var height(default, null) : Int;
 	public var debug(default, set) : Bool;
 
-	public var drawTriangles(default, null) : Int;
+	public var drawTriangles(default, null) : Float;
 	public var drawCalls(default, null) : Int;
 	public var dispatches(default, null) : Int;
 	public var shaderSwitches(default, null) : Int;
@@ -70,6 +74,10 @@ class Engine {
 
 	@:access(hxd.Window)
 	function new() {
+		#if multidriver
+		this.id = ID;
+		ID++;
+		#end
 		this.hardware = !SOFTWARE_DRIVER;
 		this.antiAlias = ANTIALIASING;
 		this.autoResize = true;
@@ -78,6 +86,7 @@ class Engine {
 		realFps = hxd.System.getDefaultFrameRate();
 		lastTime = haxe.Timer.stamp();
 		window.addResizeEvent(onWindowResize);
+		setCurrent();
 		#if macro
 		driver = new h3d.impl.NullDriver();
 		#elseif (js || hlsdl || usegl)
@@ -100,7 +109,6 @@ class Engine {
 		#else
 		#if sys Sys.println #else trace #end("No output driver available." #if hl + " Compile with -lib hlsdl or -lib hldx" #end);
 		#end
-		setCurrent();
 	}
 
 	static var CURRENT : Engine = null;
@@ -135,6 +143,13 @@ class Engine {
 
 	public function selectMaterial( pass : h3d.mat.Pass ) {
 		driver.selectMaterial(pass);
+	}
+
+	public function uploadInstanceShaderBuffers(buffers) {
+		driver.flushShaderBuffers();
+		driver.uploadShaderBuffers(buffers, Params);
+		driver.uploadShaderBuffers(buffers, Textures);
+		driver.uploadShaderBuffers(buffers, Buffers);
 	}
 
 	public function uploadShaderBuffers(buffers, which) {
@@ -428,9 +443,27 @@ class Engine {
 		return true;
 	}
 
+	public function setDepthClamp( enabled : Bool ) {
+		driver.setDepthClamp(enabled);
+	}
+
+	public function setDepthBias( depthBias : Float, slopeScaledBias : Float ) {
+		driver.setDepthBias( depthBias, slopeScaledBias );
+	}
+
 	public function dispose() {
 		driver.dispose();
 		window.removeResizeEvent(onWindowResize);
+		if ( mem != null )
+			mem.dispose();
+		#if multidriver
+		for ( r in resCache ) {
+			var resource = Std.downcast(r, hxd.res.Resource);
+			if ( resource != null ) {
+				resource.entry.unwatch(id);
+			}
+		}
+		#end
 	}
 
 	function get_fps() {

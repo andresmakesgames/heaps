@@ -55,11 +55,6 @@ class SearchMap {
 
 class Cache {
 
-	#if shader_debug_dump
-	public static var DEBUG_IDS = false;
-	public static var TRACE = true;
-	#end
-
 	var linkCache : SearchMap;
 	var linkShaders : Map<String, Shader>;
 	var batchShaders : Map<RuntimeShader, { shader : SharedShader, params : RuntimeShader.AllocParam, size : Int }>;
@@ -248,15 +243,24 @@ class Cache {
 
 		#if shader_debug_dump
 		var shaderId = @:privateAccess RuntimeShader.UID;
+		#if ( js && !sys && !hxnodejs )
+		if( shaderId == 0 ) js.Syntax.code("window.shaders_debug_dump = [];");
+		js.Syntax.code("window.shaders_debug_dump[{0}] = '';", shaderId);
+		var dbg: { writeString: String->Void, close:Void->Void } = {
+			writeString: (str: String) -> { js.Syntax.code("window.shaders_debug_dump[{0}] += {1}", shaderId, str); },
+			close: () -> {}
+		};
+		#else
 		if( shaderId == 0 ) try sys.FileSystem.createDirectory("shaders") catch( e : Dynamic ) {};
 		var dbg = sys.io.File.write("shaders/"+shaderId+"_dump.c");
+		#end
 		var oldTrace = haxe.Log.trace;
 		haxe.Log.trace = function(msg,?pos) dbg.writeString(haxe.Log.formatOutput(msg,pos)+"\n");
 		if( dbg != null ) {
 			dbg.writeString("----- DATAS ----\n\n");
 			for( s in shaderDatas ) {
 				dbg.writeString("\t\t**** " + s.inst.shader.name + (s.p == 0 ? "" : " P="+s.p)+ " *****\n");
-				dbg.writeString(Printer.shaderToString(s.inst.shader,DEBUG_IDS)+"\n\n");
+				dbg.writeString(Printer.shaderToString(s.inst.shader,Debug.VAR_IDS)+"\n\n");
 			}
 		}
 		//TRACE = shaderId == 0;
@@ -289,20 +293,20 @@ class Cache {
 				checkRec(v);
 		}
 
+		#if shader_debug_dump
+		if( dbg != null ) {
+			dbg.writeString("----- LINK ----\n\n");
+			dbg.writeString(Printer.shaderToString(s,Debug.VAR_IDS)+"\n\n");
+		}
+		#end
+
 		#if debug
 		Printer.check(s,[for( s in shaderDatas ) s.inst.shader]);
 		#end
 
-		#if shader_debug_dump
-		if( dbg != null ) {
-			dbg.writeString("----- LINK ----\n\n");
-			dbg.writeString(Printer.shaderToString(s,DEBUG_IDS)+"\n\n");
-		}
-		#end
-
 		var prev = s;
 		var splitter = new hxsl.Splitter();
-		var sl = try splitter.split(s) catch( e : Error ) { e.msg += "\n\nin\n\n"+Printer.shaderToString(s); throw e; };
+		var sl = try splitter.split(s, mode == Batch ) catch( e : Error ) { e.msg += "\n\nin\n\n"+Printer.shaderToString(s); throw e; };
 
 		// params tracking
 		var paramVars = new Map();
@@ -318,33 +322,33 @@ class Cache {
 			}
 
 
+		#if shader_debug_dump
+		if( dbg != null ) {
+			dbg.writeString("----- SPLIT ----\n\n");
+			for( s in sl )
+				dbg.writeString(Printer.shaderToString(s, Debug.VAR_IDS) + "\n\n");
+		}
+		#end
+
 		#if debug
 		for( s in sl )
 			Printer.check(s,[prev]);
 		#end
 
-		#if shader_debug_dump
-		if( dbg != null ) {
-			dbg.writeString("----- SPLIT ----\n\n");
-			for( s in sl )
-				dbg.writeString(Printer.shaderToString(s, DEBUG_IDS) + "\n\n");
-		}
-		#end
-
 		var prev = sl;
 		var sl = new hxsl.Dce().dce(sl);
-
-		#if debug
-		for( i => s in sl )
-			Printer.check(s,[prev[i]]);
-		#end
 
 		#if shader_debug_dump
 		if( dbg != null ) {
 			dbg.writeString("----- DCE ----\n\n");
 			for( s in sl )
-				dbg.writeString(Printer.shaderToString(s, DEBUG_IDS) + "\n\n");
+				dbg.writeString(Printer.shaderToString(s, Debug.VAR_IDS) + "\n\n");
 		}
+		#end
+
+		#if debug
+		for( i => s in sl )
+			Printer.check(s,[prev[i]]);
 		#end
 
 		var r = buildRuntimeShader(sl, paramVars);
@@ -354,7 +358,7 @@ class Cache {
 		if( dbg != null ) {
 			dbg.writeString("----- FLATTEN ----\n\n");
 			for( s in r.getShaders() )
-				dbg.writeString(Printer.shaderToString(s.data, DEBUG_IDS) + "\n\n");
+				dbg.writeString(Printer.shaderToString(s.data, Debug.VAR_IDS) + "\n\n");
 		}
 		#end
 
@@ -625,7 +629,7 @@ class Cache {
 		var useStorage = declVar("Batch_UseStorage",TBool,Param);
 		var vcount = declVar("Batch_Count",TInt,Param);
 		var vuniformBuffer = declVar("Batch_Buffer",TBuffer(TVec(4,VFloat),SVar(vcount),Uniform),Param);
-		var vstorageBuffer = declVar("Batch_StorageBuffer",TBuffer(TVec(4,VFloat),SConst(65535),RW),Param);
+		var vstorageBuffer = declVar("Batch_StorageBuffer",TBuffer(TVec(4,VFloat),SConst(0),RW),Param);
 		var voffset = declVar("Batch_Offset", TInt, Local);
 		var euniformBuffer = { e : TVar(vuniformBuffer), p : pos, t : vuniformBuffer.type };
 		var estorageBuffer = { e : TVar(vstorageBuffer), p : pos, t : vstorageBuffer.type };
@@ -688,8 +692,13 @@ class Cache {
 
 		var params = null;
 		var used = [];
+		var added = [];
 
 		function addParam(p:RuntimeShader.AllocParam) {
+			var pid = p.perObjectGlobal != null ? -p.perObjectGlobal.gid : p.instance * 1024 + p.index;
+            if( added.indexOf(pid) >= 0 )
+                return;
+            added.push(pid);
 			var size = switch( p.type ) {
 				case TMat4: 4 * 4;
 				case TVec(n,VFloat): n;

@@ -14,7 +14,14 @@ class FileEntry {
 	public function readBytes( out : haxe.io.Bytes, outPos : Int, pos : Int, len : Int ) : Int { throw "readBytes() not implemented"; }
 
 
+	#if heaps_mt_loader
+	static var TMP_BYTES(get,set) : haxe.io.Bytes;
+	static var bytesValue = new sys.thread.Tls<haxe.io.Bytes>();
+	static function get_TMP_BYTES() return bytesValue.value;
+	static function set_TMP_BYTES(v) return bytesValue.value = v;
+	#else
 	static var TMP_BYTES : haxe.io.Bytes = null;
+	#end
 	/**
 		Similar to readBytes except :
 		a) a temporary buffer is reused, meaning a single fetchBytes must occur at a single time
@@ -50,6 +57,9 @@ class FileEntry {
 	public function load( ?onReady : Void -> Void ) : Void { if( !isAvailable ) throw "load() not implemented"; else if( onReady != null ) onReady(); }
 	public function loadBitmap( onLoaded : LoadedBitmap -> Void ) : Void { throw "loadBitmap() not implemented"; }
 	public function watch( onChanged : Null<Void -> Void> ) { }
+	#if multidriver
+	public function unwatch( id : Int ) { }
+	#end
 	public function exists( name : String ) : Bool return false;
 	public function get( name : String ) : FileEntry return null;
 

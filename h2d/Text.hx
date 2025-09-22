@@ -316,6 +316,7 @@ class Text extends Drawable {
 	**/
 	@:dox(show)
 	function splitRawText( text : String, leftMargin = 0., afterData = 0., ?font : Font, ?sizes:Array<Float>, ?prevChar:Int = -1 ) {
+		var prevChar = prevChar ?? -1;
 		var maxWidth = realMaxWidth;
 		if( maxWidth < 0 ) {
 			if ( sizes == null )
@@ -409,7 +410,7 @@ class Text extends Drawable {
 
 	function initGlyphs( text : String, rebuild = true ) : Void {
 		if( rebuild ) glyphs.clear();
-		var x = 0., y = 0., xMax = 0., xMin = 0., yMin = 0., prevChar = -1, linei = 0;
+		var x = 0., y = 0., xMax = 0., xMin = 0., yMin = 0., yMax = 0., prevChar = -1, linei = 0;
 		var align = textAlign;
 		var lines = new Array<Float>();
 		var dl = font.lineHeight + lineSpacing;
@@ -454,6 +455,8 @@ class Text extends Drawable {
 				if( e != null ) {
 					if( rebuild ) glyphs.add(x + offs, y, e.t);
 					if( y == 0 && e.t.dy < yMin ) yMin = e.t.dy;
+					var ty = y + e.t.dy + e.t.height;
+					if( ty > yMax ) yMax = ty;
 					x += esize + letterSpacing;
 				}
 				prevChar = cc;
@@ -464,7 +467,7 @@ class Text extends Drawable {
 		calcXMin = xMin;
 		calcYMin = yMin;
 		calcWidth = xMax - xMin;
-		calcHeight = y + font.lineHeight;
+		calcHeight = yMax - yMin;
 		calcSizeHeight = y + (font.baseLine > 0 ? font.baseLine : font.lineHeight);
 		calcDone = true;
 		if ( rebuild ) needsRebuild = false;
@@ -477,7 +480,7 @@ class Text extends Drawable {
 
 	function get_textHeight() {
 		updateSize();
-		return calcHeight;
+		return font.baseLine == 0 ? calcSizeHeight : calcSizeHeight - font.baseLine + font.lineHeight;
 	}
 
 	function get_textWidth() {
@@ -526,7 +529,7 @@ class Text extends Drawable {
 			x = calcXMin;
 			y = calcYMin;
 			w = calcWidth;
-			h = calcHeight - calcYMin;
+			h = calcHeight;
 		}
 		addBounds(relativeTo, out, x, y, w, h);
 	}

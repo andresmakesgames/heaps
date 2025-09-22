@@ -8,21 +8,31 @@ class HMDModel extends MeshPrimitive {
 	var dataPosition : Int;
 	var indexCount : Int;
 	var indexesTriPos : Array<Int>;
-	var lib : hxd.fmt.hmd.Library;
+	public var lib(default,null) : hxd.fmt.hmd.Library;
 	var curMaterial : Int;
 	var collider : h3d.col.Collider;
 	var normalsRecomputed : String;
 	var blendshape : Blendshape;
+	var lodConfig : Array<Float> = null;
+	var colliderData : Collider;
 
-	public function new( data : hxd.fmt.hmd.Data.Geometry, dataPos, lib, lods = null ) {		
+	public function new( data : hxd.fmt.hmd.Data.Geometry, dataPos, lib, lods : Array<hxd.fmt.hmd.Data.Model> = null ) {
 		this.lods = [data];
-		if (lods != null)
-			this.lods = this.lods.concat(lods);			
+		if (lods != null) {
+			for (lod in lods)
+				this.lods.push(lib.header.geometries[lod.geometry]);
+		}
 		this.dataPosition = dataPos;
 		this.lib = lib;
 
 		if (lib.header.shapes != null && lib.header.shapes.length > 0)
 			this.blendshape = new Blendshape(this);
+		if ( lib.header.colliders != null && lib.header.colliders.length > 0 )
+			this.colliderData = Collider.fromHmd(this);
+	}
+
+	public function getPath() {
+		return lib.resource.entry.path;
 	}
 
 	override function hasInput( name : String ) {
@@ -45,12 +55,20 @@ class HMDModel extends MeshPrimitive {
 		curMaterial = material + lod * data.indexCounts.length;
 	}
 
-	override function getMaterialIndexes(material:Int):{count:Int, start:Int} {
-		return { start : indexesTriPos[material]*3, count : data.indexCounts[material] };
+	override function getMaterialIndexStart( material : Int, lod : Int = 0 ) : Int {
+		return indexesTriPos[material + lod * data.indexCounts.length]*3;
 	}
 
-	public function getDataBuffers(fmt, ?defaults,?material) {
-		return lib.getBuffers(data, fmt, defaults, material);
+	override function getMaterialIndexCount( material : Int, lod : Int = 0 ) : Int {
+		return lods[lod].indexCounts[material];
+	}
+
+	public function getDataBuffers(fmt, ?defaults, ?material) {
+		return getLodBuffers(fmt, 0, defaults, material);
+	}
+
+	public function getLodBuffers(fmt, lodIdx, ?defaults, ?material) {
+		return lib.getBuffers(lods[lodIdx], fmt, defaults, material);
 	}
 
 	public function loadSkin(skin) {
@@ -77,17 +95,24 @@ class HMDModel extends MeshPrimitive {
 		var is32 : Bool = vertexCount > 0x10000;
 		indexes = new h3d.Indexes(indexCount, is32);
 		var indexStride : Int = (is32 ? 4 : 2);
-		
+
 		var entry = lib.resource.entry;
 		var curVertexCount : Int = 0;
 		var curIndexCount : Int = 0;
-		
-		for ( lod in lods ) {
-			if (lod.vertexFormat != vertexFormat)
-				throw "LOD has a different vertex format";
-			
+
+		for ( i => lod in lods ) {
+			if (lod.vertexFormat != vertexFormat) {
+				var error = 'LOD${i} has a different vertex format, has ';
+				for ( input in lod.vertexFormat.getInputs() )
+					error += input.name + " ";
+				error += ", wants ";
+				for ( input in vertexFormat.getInputs() )
+					error += input.name + " ";
+				throw error;
+			}
+
 			var size = lod.vertexCount * vertexFormat.strideBytes;
-			var bytes = entry.fetchBytes(dataPosition + lod.vertexPosition, size);			
+			var bytes = entry.fetchBytes(dataPosition + lod.vertexPosition, size);
 			engine.driver.uploadBufferBytes(buffer, curVertexCount, lod.vertexCount, bytes, 0);
 
 			var indexCount = lod.indexCount;
@@ -100,9 +125,9 @@ class HMDModel extends MeshPrimitive {
 				for ( i in 0...indexCount )
 					if ( lodIs32 )
 						outBytes.setInt32(i << 2, inBytes.getInt32(i << 2) + curVertexCount);
-					else 
+					else
 						outBytes.setInt32(i << 2, inBytes.getUInt16(i << 1) + curVertexCount);
-			else 
+			else
 				for ( i in 0...indexCount )
 					if ( lodIs32 )
 						outBytes.setUInt16(i << 1, inBytes.getInt32(i << 2) + curVertexCount);
@@ -136,7 +161,7 @@ class HMDModel extends MeshPrimitive {
 			var ids = new Array();
 			var pts : Array<h3d.col.Point> = [];
 			var mpts = new Map();
-	
+
 			for( i in 0...lod.vertexCount ) {
 				var added = false;
 				var px = pos.vertexes[i * 3];
@@ -163,14 +188,14 @@ class HMDModel extends MeshPrimitive {
 					pts.push(new h3d.col.Point(px,py,pz));
 				}
 			}
-	
+
 			var idx = new hxd.IndexBuffer();
 			for( i in pos.indexes )
 				idx.push(ids[i]);
-	
+
 			var pol = new Polygon(pts, idx);
 			pol.addNormals();
-	
+
 			var startOffset : Int = v.length;
 			v.grow(lod.vertexCount*3);
 			var k = 0;
@@ -218,7 +243,7 @@ class HMDModel extends MeshPrimitive {
 			var pol = new Polygon(pts, idx);
 			pol.addNormals();
 			pol.addTangents();
-	
+
 			var startOffset : Int = v.length;
 			v.grow(lod.vertexCount*3);
 			var k = 0;
@@ -229,7 +254,7 @@ class HMDModel extends MeshPrimitive {
 				v[startOffset + k++] = t.z;
 			}
 		}
-		
+
 		var buf = h3d.Buffer.ofFloats(v, hxd.BufferFormat.make([{ name : "tangent", type : DVec3 }]));
 		addBuffer(buf);
 	}
@@ -253,11 +278,24 @@ class HMDModel extends MeshPrimitive {
 	}
 
 	function initCollider( poly : h3d.col.PolygonBuffer ) {
-		var buf= lib.getBuffers(data, hxd.BufferFormat.POS3D);
-		poly.setData(buf.vertexes, buf.indexes);
-		if( collider == null ) {
-			var sphere = data.bounds.toSphere();
-			collider = new h3d.col.Collider.OptimizedCollider(sphere, poly);
+		var sphere = data.bounds.toSphere();
+		if ( colliderData == null ) {
+			var buf = lib.getBuffers(data, hxd.BufferFormat.POS3D);
+			poly.setData(buf.vertexes, buf.indexes);
+			if( collider == null )
+				collider = new h3d.col.Collider.OptimizedCollider(sphere, poly);
+		} else {
+			var buffers = colliderData.getBuffers();
+			var hulls : Array<h3d.col.Collider> = [];
+			hulls.resize(buffers.length);
+			for ( i => buf in buffers ) {
+				var p = new h3d.col.PolygonBuffer();
+				p.source = poly.source;
+				p.setData(buf.vertexes, buf.indexes);
+				hulls[i] = p;
+			}
+			var convexHulls = new h3d.col.Collider.GroupCollider(hulls);
+			collider = new h3d.col.Collider.OptimizedCollider(sphere, convexHulls);
 		}
 	}
 
@@ -277,35 +315,43 @@ class HMDModel extends MeshPrimitive {
 		initCollider(poly);
 		return collider;
 	}
-		
+
 	override public function lodCount() : Int {
 		return lods.length;
-	}
-	
-	public static var lodExportKeyword : String = "LOD";
-	static var lodConfig : Array<Float> = [0.02, 0.002, 0.0002];
-	public static function loadLodConfig( config : Array<Float> ) {
-		lodConfig = config;
 	}
 
 	override public function screenRatioToLod( screenRatio : Float ) : Int {
 		var lodCount = lodCount();
 
+		if (forcedLod >= 0)
+			return hxd.Math.imin(forcedLod, lodCount);
+
 		if ( lodCount == 1 )
 			return 0;
 
-		if ( lodConfig != null && lodConfig.length >= lodCount - 1) {
-			var lodLevel : Int = 0; 
-			var maxIter = ( ( lodConfig.length > lodCount - 1 ) ? lodCount - 1: lodConfig.length );
+		var lodConfig = getLodConfig();
+		if ( lodConfig != null ) {
+			var lodConfigHasCulling = lodConfig.length > lodCount - 1;
+			if ( lodConfigHasCulling && screenRatio < lodConfig[lodConfig.length - 1] )
+				return lodCount;
+
+			var lodLevel : Int = 0;
+			var maxIter = lodConfigHasCulling ? lodCount - 1 : lodConfig.length;
 			for ( i in 0...maxIter ) {
+				if ( lodConfig[i] == 0.0 )
+					return lodLevel;
 				if ( lodConfig[i] > screenRatio )
 					lodLevel++;
-				else 
+				else
 					break;
 			}
 			return lodLevel;
 		}
 
 		return 0;
+	}
+
+	public function getLodConfig() {
+		return lodConfig;
 	}
 }

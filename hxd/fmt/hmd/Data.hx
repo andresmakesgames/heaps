@@ -11,6 +11,8 @@ enum Property<T> {
 	Unused_HasMaterialFlags; // TODO: Removing this will offset property indices
 	HasExtraTextures;
 	FourBonesByVertex;
+	HasLod;
+	HasCollider;
 }
 
 typedef Properties = Null<Array<Property<Dynamic>>>;
@@ -90,6 +92,15 @@ class BlendShape {
 	}
 }
 
+class Collider {
+	public var vertexCounts : Array<Int>;
+	public var vertexPosition : DataPosition;
+	public var indexCounts : Array<Int>;
+	public var indexPosition : DataPosition;
+	public function new() {
+	}
+}
+
 class Material {
 
 	public var name : String;
@@ -139,7 +150,55 @@ class Model {
 	public var geometry : Index<Geometry>;
 	public var materials : Null<Array<Index<Material>>>;
 	public var skin : Null<Skin>;
+	public var lods : Array<Index<Model>>;
+	public var collider : Null<Index<Collider>>;
 	public function new() {
+	}
+
+	public function getObjectName() {
+		if ( name == null )
+			return name;
+		var reg = ~/_*-*LOD0/;
+		return reg.replace(name, '');
+	}
+
+	public function isLOD() {
+		return name.indexOf("LOD0") < 0;
+	}
+
+	public function isLOD0(modelName : String) {
+		return name != null && StringTools.contains(name, modelName) && StringTools.contains(name, "LOD0");
+	}
+
+	public function toLODName(i : Int) {
+		return name + "LOD" + i;
+	}
+
+	public function getLODInfos() : { lodLevel : Int , modelName : String } {
+		var keyword = "LOD";
+		if ( name == null || name.length <= keyword.length )
+			return { lodLevel : -1, modelName : null };
+
+		// Test prefix
+		if ( name.substr(0, keyword.length) == keyword) {
+			var parsedInt = Std.parseInt(name.substr( keyword.length, 1 ));
+			if (parsedInt != null) {
+				if ( Std.parseInt( name.substr( keyword.length + 1, 1 ) ) != null )
+					throw 'Did not expect a second number after LOD in ${name}';
+				return { lodLevel : parsedInt, modelName : name.substr(keyword.length) };
+			}
+		}
+
+		// Test suffix
+		var maxCursor = name.length - keyword.length - 1;
+		if ( name.substr( maxCursor, keyword.length ) == keyword ) {
+			var parsedInt = Std.parseInt( name.charAt( name.length - 1) );
+			if ( parsedInt != null ) {
+				return { lodLevel : parsedInt, modelName : name.substr( 0, maxCursor ) };
+			}
+		}
+
+		return { lodLevel : -1, modelName : null };
 	}
 }
 
@@ -204,6 +263,7 @@ class Data {
 	public var models : Array<Model>;
 	public var animations : Array<Animation>;
 	public var shapes : Array<BlendShape>;
+	public var colliders : Array<Collider>;
 	public var dataPosition : Int;
 	public var data : haxe.io.Bytes;
 

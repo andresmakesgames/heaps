@@ -33,6 +33,11 @@ class Camera {
 	public var m : Matrix;
 
 	public var pos : Vector;
+	/**
+		up is used for the lookAt matrix.
+		it is not the actual up axis of the camera.
+		use getUp instead.
+	**/
 	public var up : Vector;
 	public var target : Vector;
 
@@ -42,6 +47,11 @@ class Camera {
 	public var follow : { pos : h3d.scene.Object, target : h3d.scene.Object };
 
 	public var frustum(default, null) : h3d.col.Frustum;
+
+	public var jitterOffsetX : Float = 0.;
+	public var jitterOffsetY : Float = 0.;
+
+	public var reverseDepth = false;
 
 	var minv : Matrix;
 	var mcamInv : Matrix;
@@ -154,10 +164,9 @@ class Camera {
 	/**
 		Returns the forward of the camera. Cache the result until the next update().
 	**/
-	public function getForward( ?forward : h3d.Vector ) : h3d.Vector {
-		if ( forward == null)
-			forward = new h3d.Vector();
 
+	inline public function getForward() : h3d.Vector {
+		var forward = new h3d.Vector();
 		if ( directions == null ) {
 			directions = new h3d.Matrix();
 			directions._44 = 0;
@@ -175,9 +184,9 @@ class Camera {
 	/**
 		Returns the right of the camera. Cache the result until the next update().
 	**/
-	public function getRight( ?right : h3d.Vector ) : h3d.Vector {
-		if ( right == null)
-			right = new h3d.Vector();
+
+	inline public function getRight() : h3d.Vector {
+		var right = new h3d.Vector();
 		if ( directions == null ) {
 			directions = new h3d.Matrix();
 			directions._44 = 0;
@@ -195,16 +204,15 @@ class Camera {
 	/**
 		Returns the up of the camera. Cache the result until the next update().
 	**/
-	public function getUp( ?up : h3d.Vector ) : h3d.Vector {
-		if ( up == null)
-			up = new h3d.Vector();
+
+	inline public function getUp() : h3d.Vector {
+		var up = new h3d.Vector();
 		if ( directions == null ) {
 			directions = new h3d.Matrix();
 			directions._44 = 0;
 		}
 		if ( directions._44 == 0 )
 			calcDirections();
-		
 		up.x = directions._31;
 		up.y = directions._32;
 		up.z = directions._33;
@@ -411,9 +419,12 @@ class Camera {
 			var scale = zoom / Math.tan(halfFovX);
 			m._11 = scale;
 			m._22 = scale * screenRatio;
-			m._33 = zFar / (zFar - zNear);
+			m._33 = reverseDepth ? -zNear / (zFar - zNear) : zFar / (zFar - zNear);
 			m._34 = 1;
-			m._43 = -(zNear * zFar) / (zFar - zNear);
+			m._43 = reverseDepth ? (zNear * zFar) / (zFar - zNear) : -(zNear * zFar) / (zFar - zNear);
+
+			m._31 = jitterOffsetX;
+			m._32 = jitterOffsetY;
 		}
 
 		m._11 += viewX * m._14;
@@ -436,6 +447,20 @@ class Camera {
 	/**
 		Project a 3D point into the 2D screen. Make sure to update() the camera if it's been moved before using that.
 	**/
+
+	inline public function projectInline( x : Float, y : Float, z : Float, screenWidth : Float, screenHeight : Float, snapToPixel = true ) {
+		var p = new h3d.Vector();
+		p.set(x, y, z);
+		p.project(m);
+		p.x = (p.x + 1) * 0.5 * screenWidth;
+		p.y = (-p.y + 1) * 0.5 * screenHeight;
+		if( snapToPixel ) {
+			p.x = Math.round(p.x);
+			p.y = Math.round(p.y);
+		}
+		return p;
+	}
+
 	public function project( x : Float, y : Float, z : Float, screenWidth : Float, screenHeight : Float, snapToPixel = true, ?p: h3d.Vector) {
 		if(p == null)
 			p = new h3d.Vector();

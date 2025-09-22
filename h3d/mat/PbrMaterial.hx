@@ -6,7 +6,9 @@ enum abstract PbrMode(String) {
 	var Overlay = "Overlay";
 	var Decal = "Decal";
 	var BeforeTonemapping = "BeforeTonemapping";
+	var BeforeTonemappingDecal = "BeforeTonemappingDecal";
 	var AfterTonemapping = "AfterTonemapping";
+	var AfterTonemappingDecal = "AfterTonemappingDecal";
 	var Distortion = "Distortion";
 	var DecalPass = "DecalPass";
 	var TerrainPass = "TerrainPass";
@@ -92,6 +94,8 @@ typedef PbrProps = {
 
 	@:optional var drawOrder : String;
 	@:optional var depthPrepass : Bool;
+	@:optional var flipBackFaceNormal : Bool;
+	@:optional var ignoreCollide : Bool;
 }
 
 class PbrMaterial extends Material {
@@ -238,6 +242,10 @@ class PbrMaterial extends Material {
 		 	Reflect.deleteField(props, "depthWrite");
 		if ( !props.depthPrepass )
 			Reflect.deleteField(props, "depthPrepass");
+		if ( !props.flipBackFaceNormal )
+			Reflect.deleteField(props, "flipBackFaceNormal");
+		if ( !props.ignoreCollide )
+			Reflect.deleteField(props, "ignoreCollide");
 		if ( props.parallaxSteps == h3d.shader.Parallax.MAX_LAYERS || props.parallaxSteps == 0 )
 			Reflect.deleteField(props, "parallaxSteps");
 		#end
@@ -253,8 +261,11 @@ class PbrMaterial extends Material {
 			// pass name set below (in set_blendMode)
 		case Forward:
 			mainPass.setPassName("forward");
-		case BeforeTonemapping:
-			mainPass.setPassName("beforeTonemapping");
+		case BeforeTonemapping, BeforeTonemappingDecal:
+			if ( props.mode == BeforeTonemappingDecal )
+				mainPass.setPassName("beforeTonemappingDecal");
+			else
+				mainPass.setPassName("beforeTonemapping");
 			var gc = mainPass.getShader(h3d.shader.pbr.GammaCorrect);
 			if( gc == null ) {
 				gc = new h3d.shader.pbr.GammaCorrect();
@@ -264,16 +275,15 @@ class PbrMaterial extends Material {
 			}
 		case AfterTonemapping:
 			mainPass.setPassName("afterTonemapping");
+		case AfterTonemappingDecal:
+			mainPass.setPassName("afterTonemappingDecal");
 		case Distortion:
 			mainPass.setPassName("distortion");
 			mainPass.depthWrite = false;
 		case Overlay:
 			mainPass.setPassName("overlay");
 		case Decal:
-			if (props.emissive != 0)
-				mainPass.setPassName("emissiveDecal");
-			else
-				mainPass.setPassName("decal");
+			mainPass.setPassName("decal");
 			var vd = mainPass.getShader(h3d.shader.VolumeDecal);
 			if( vd == null ) {
 				vd = new h3d.shader.VolumeDecal(1,1);
@@ -286,10 +296,7 @@ class PbrMaterial extends Material {
 				mainPass.addShader(sv);
 			}
 		case DecalPass:
-			if (props.emissive != 0)
-				mainPass.setPassName("emissiveDecal");
-			else
-				mainPass.setPassName("decal");
+			mainPass.setPassName("decal");
 			var sv = mainPass.getShader(h3d.shader.pbr.StrengthValues);
 			if( sv == null ) {
 				sv = new h3d.shader.pbr.StrengthValues();
@@ -397,6 +404,8 @@ class PbrMaterial extends Material {
 			var passName = switch (props.mode) {
 			case PBR:
 				"depthPrepass";
+			case Forward:
+				"forwardDepthPrepass";
 			case BeforeTonemapping:
 				"beforeTonemappingDepthPrepass";
 			default:
@@ -413,15 +422,18 @@ class PbrMaterial extends Material {
 				}
 
 				var p = allocPass(passName);
-				var killAlpha = new h3d.shader.KillAlpha();
-				killAlpha.threshold = 0.5;
-				p.addShader(killAlpha);
 				p.depthWrite = true;
 				p.depthTest = Less;
 				p.culling = mainPass.culling;
 				p.setBlendMode(None);
 			}
 		}
+
+		var sh = mainPass.getShader(h3d.shader.FlipBackFaceNormal);
+		if ( props.flipBackFaceNormal && sh == null )
+			mainPass.addShader(new h3d.shader.FlipBackFaceNormal());
+		else if ( !props.flipBackFaceNormal && sh != null )
+			mainPass.removeShader(sh);
 	}
 
 	function setColorMask() {
@@ -542,7 +554,9 @@ class PbrMaterial extends Material {
 						<option value="PBR">PBR</option>
 						<option value="Forward">Forward PBR</option>
 						<option value="BeforeTonemapping">Before Tonemapping</option>
+						<option value="BeforeTonemappingDecal">Before Tonemapping Decal</option>
 						<option value="AfterTonemapping">After Tonemapping</option>
+						<option value="AfterTonemappingDecal">After Tonemapping Decal</option>
 						<option value="Overlay">Overlay</option>
 						<option value="Distortion">Distortion</option>
 						<option value="Decal">Decal</option>
@@ -606,6 +620,8 @@ class PbrMaterial extends Material {
 					</select>
 				</dd>
 				<dt>Depth prepass</dt><dd><input type="checkbox" field="depthPrepass"/></dd>
+				<dt>Flip back face normal</dt><dd><input type="checkbox" field="flipBackFaceNormal"/></dd>
+				<dt>Ignore collide</dt><dd><input type="checkbox" field="ignoreCollide"/></dd>
 			</dl>
 		');
 	}

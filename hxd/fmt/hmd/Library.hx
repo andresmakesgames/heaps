@@ -45,6 +45,12 @@ class Library {
 	var cachedAnimations : Map<String, h3d.anim.Animation>;
 	var cachedSkin : Map<String, h3d.anim.Skin>;
 
+	static var baseLodConfig = [ 0.5, 0.2, 0.01];
+	#if (sys || nodejs)
+	static var defaultLodConfigs : Map<String, hxd.fs.FileConverter.ConvertConfig> = new Map();
+	static var defaultDynamicBonesConfigs : Map<String, hxd.fs.FileConverter.ConvertConfig> = new Map();
+	#end
+
 	public function new(res,  header) {
 		this.resource = res;
 		this.header = header;
@@ -272,21 +278,33 @@ class Library {
 		var p = cachedPrimitives[id];
 		if( p != null ) return p;
 
-		var lodInfos = getLODInfos( model );
-		if ( lodInfos.lodLevel > 0) {
-			for ( m in header.models )
-				if ( m.name != null && StringTools.contains(m.name, lodInfos.modelName) && StringTools.contains(m.name, "LOD0"))
-					return null;
-			throw "No LOD0 found for " + lodInfos.modelName + " in " + resource.name;
-		}
+		var lods : Array<Model> = null;
+		var hasLod = model.lods != null;
+		if ( hasLod ) {
+			if ( model.isLOD() )
+				return null;
+			lods = [for ( lod in model.lods) header.models[lod]];
+			patchLodsMaterials(model, lods);
+		} else {
+			var lodInfos = model.getLODInfos();
+			if ( lodInfos.lodLevel > 0) {
+				for ( m in header.models )
+					if ( m.isLOD0(lodInfos.modelName) )
+						return null;
+				throw "No LOD0 found for " + lodInfos.modelName + " in " + resource.name;
+			}
 
-		var lods : Array<Geometry> = null;
-		if (lodInfos.lodLevel == 0 )
-			lods = findLODs( lodInfos.modelName );
+			if (lodInfos.lodLevel == 0 ) {
+				lods = findLODs( lodInfos.modelName, model );
+				patchLodsMaterials(model, lods);
+				hasLod = true;
+			}
+		}
 
 		p = new h3d.prim.HMDModel(header.geometries[id], header.dataPosition, this, lods);
 		p.incref(); // Prevent from auto-disposing
 		cachedPrimitives[id] = p;
+
 		return p;
 	}
 
@@ -310,8 +328,8 @@ class Library {
 			try {
 				if ( setupMaterialLibrary(loadTexture, mat, hxd.res.Loader.currentInstance.load((props:Dynamic).__ref).toPrefab(), (props:Dynamic).name) )
 					return mat;
-			} catch( e : Dynamic ) {
-			}
+			} catch( e : Dynamic ) {}
+			props = mat.getDefaultModelProps();
 		}
 		#end
 		if( m.diffuseTexture != null ) {
@@ -336,6 +354,7 @@ class Library {
 		s.allJoints = [];
 		s.boundJoints = [];
 		s.rootJoints = [];
+
 		for( joint in skin.joints ) {
 			var j = new h3d.anim.Skin.Joint();
 			j.name = joint.name;
@@ -378,54 +397,45 @@ class Library {
 		return def;
 	}
 
-	function getLODInfos( model : Model ) : { lodLevel : Int , modelName : String } {
-		var modelName : String = model.name;
-		var keyword = h3d.prim.HMDModel.lodExportKeyword;
-		if ( modelName == null || modelName.length <= keyword.length )
-			return { lodLevel : -1, modelName : null };
-
-		// Test prefix
-		if ( modelName.substr(0, keyword.length) == keyword) {
-			var parsedInt = Std.parseInt(modelName.substr( keyword.length, 1 ));
-			if (parsedInt != null) {
-				if ( Std.parseInt( modelName.substr( keyword.length + 1, 1 ) ) != null )
-					throw 'Did not expect a second number after LOD in ${modelName}';
-				return { lodLevel : parsedInt, modelName : modelName.substr(keyword.length) };
-			}
-		}
-
-		// Test suffix
-		var maxCursor = modelName.length - keyword.length - 1;
-		if ( modelName.substr( maxCursor, keyword.length ) == keyword ) {
-			var parsedInt = Std.parseInt( modelName.charAt( modelName.length - 1) );
-			if ( parsedInt != null ) {
-				return { lodLevel : parsedInt, modelName : modelName.substr( 0, maxCursor ) };
-			}
-		}
-
-		return { lodLevel : -1, modelName : null };
-	}
-
-	function findLODs( modelName : String ) : Array<Geometry> {
+	public function findLODs( modelName : String, lod0 : Model ) : Array<Model> {
 		if ( modelName == null )
 			return null;
-
-		var lods : Array<Geometry> = [];
+		var lods : Array<Model> = [];
 		for ( curModel in header.models ) {
-			var lodInfos = getLODInfos( curModel );
+			var lodInfos = curModel.getLODInfos();
 			if ( lodInfos.lodLevel < 1 )
 				continue;
 			if ( lodInfos.modelName == modelName ) {
-				var capacityNeeded = lodInfos.lodLevel;
-				if ( capacityNeeded > lods.length )
-					lods.resize(capacityNeeded);
 				if ( lods[lodInfos.lodLevel - 1] != null )
 					throw 'Multiple LODs with the same level : ${curModel.name}';
-				lods[lodInfos.lodLevel - 1] = header.geometries[curModel.geometry];
+				lods[lodInfos.lodLevel - 1] = curModel;
 			}
 		}
-
 		return lods;
+	}
+
+	public function patchLodsMaterials( lod0 : Model, lods : Array<Model>) {
+		for (model in lods) {
+			for (m in model.materials) {
+				if (lod0.materials.contains(m))
+					continue;
+				throw 'Model ${model.name} has a material that isn\'t used by ${lod0.name}. This is not supported.';
+			}
+
+			// Patch materials when lods have different materials, otherwise some indexCounts will be null
+			var geom = header.geometries[model.geometry];
+			var indexCounts = [];
+			var j = 0;
+			for ( i in 0...lod0.materials.length ) {
+				if (lod0.materials[i] == model.materials[j]) {
+					indexCounts[i] = geom.indexCounts[j];
+					j++;
+				}
+				else
+					indexCounts[i] = 0;
+			}
+			geom.indexCounts = indexCounts;
+		}
 	}
 
 	#if !dataOnly
@@ -452,12 +462,33 @@ class Library {
 				else
 					obj = new h3d.scene.MultiMaterial(prim, [for( mat in m.materials ) makeMaterial(m, mat, loadTexture)]);
 			}
-			obj.name = m.name;
+			obj.name = m.getObjectName();
 			obj.defaultTransform = m.position.toMatrix();
 			objs.push(obj);
 			var p = objs[m.parent];
 			if( p != null ) p.addChild(obj);
+
+			var modelData : h3d.prim.ModelDatabase.ModelDataInput = {
+				resourceDirectory : resource.entry.directory,
+				resourceName : resource.name,
+				objectName : obj.name,
+				hmd : Std.downcast(Std.downcast(obj, h3d.scene.Mesh)?.primitive, h3d.prim.HMDModel),
+				skin : Std.downcast(obj, h3d.scene.Skin),
+				collide : null
+			}
+
+			// Apply default config to object (config that is in props.json)
+			var data = {}
+			Reflect.setField(data, @:privateAccess h3d.prim.ModelDatabase.LOD_CONFIG, getDefaultLodConfig(modelData.resourceDirectory));
+			Reflect.setField(data, @:privateAccess h3d.prim.ModelDatabase.DYN_BONES_CONFIG, getDefaultDynamicBonesConfig(modelData.resourceDirectory));
+
+			@:privateAccess h3d.prim.ModelDatabase.current.loadLodConfig(modelData, data);
+			@:privateAccess h3d.prim.ModelDatabase.current.loadDynamicBonesConfig(modelData, data);
+
+			// Apply more specific config to object (config that is in model.props)
+			h3d.prim.ModelDatabase.current.loadModelProps(modelData);
 		}
+
 		var o = objs[0];
 		if( o != null ) o.modelRoot = true;
 		return o;
@@ -720,7 +751,7 @@ class Library {
 				var vidx = data.indexes[idx];
 				var p = vidx * formatStride;
 				var x = vbuf[p];
-				if( x != x ) {
+				if( Math.isNaN(x) ) {
 					// already processed
 					continue;
 				}
@@ -844,4 +875,51 @@ class Library {
     }
 	#end
 
+
+	public static function getDefaultLodConfig( dir : String ) : Array<Float> {
+		var fs = Std.downcast(hxd.res.Loader.currentInstance.fs, hxd.fs.LocalFileSystem);
+		var c = baseLodConfig;
+		#if (sys || nodejs)
+		if (fs != null) {
+			var conf : hxd.fs.FileConverter.ConvertConfig = null;
+
+			function getConvertConf(obj : Dynamic) : hxd.fs.FileConverter.ConvertConfig {
+				var defObj = {};
+				Reflect.setField(defObj, @:privateAccess h3d.prim.ModelDatabase.LOD_CONFIG_FIELD, obj);
+				return @:privateAccess fs.convert.makeConfig(defObj);
+			}
+
+			conf = @:privateAccess fs.convert.getConfig(defaultLodConfigs, getConvertConf(baseLodConfig), dir, function(fullObj) {
+				return fs.convert.makeConfig(fullObj);
+			});
+
+			c = Reflect.field(conf.obj, @:privateAccess h3d.prim.ModelDatabase.LOD_CONFIG_FIELD);
+		}
+		#end
+		c = h3d.prim.ModelDatabase.customizeLodConfig(c);
+		return c;
+	}
+
+	public static function getDefaultDynamicBonesConfig( dir : String ) : Array<Dynamic> {
+		var fs = Std.downcast(hxd.res.Loader.currentInstance.fs, hxd.fs.LocalFileSystem);
+		var c = [];
+		#if (sys || nodejs)
+		if (fs != null) {
+			var conf : hxd.fs.FileConverter.ConvertConfig = null;
+
+			function getConvertConf(obj : Dynamic) : hxd.fs.FileConverter.ConvertConfig {
+				var defObj = {};
+				Reflect.setField(defObj, @:privateAccess h3d.prim.ModelDatabase.DYN_BONES_CONFIG, obj);
+				return @:privateAccess fs.convert.makeConfig(defObj);
+			}
+
+			conf = @:privateAccess fs.convert.getConfig(defaultDynamicBonesConfigs, getConvertConf([]), dir, function(fullObj) {
+				return fs.convert.makeConfig(fullObj);
+			});
+
+			c = Reflect.field(conf.obj, @:privateAccess h3d.prim.ModelDatabase.DYN_BONES_CONFIG);
+		}
+		#end
+		return c;
+	}
 }
